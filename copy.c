@@ -31,13 +31,17 @@
 #include <strings.h>
 #ifndef _WIN32
 # include <sys/acl.h>
+# include <sys/ioctl.h>
 #endif
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
+#ifdef _WIN32
+# include <windows.h>
+#else
+# include <unistd.h>
+#endif
 #include <utime.h>
 
 #define PROGRAM_NAME     "copy"
@@ -524,10 +528,17 @@ format_percent (char *buffer, byte_t sofar, byte_t total)
 static int
 console_width (void)
 {
-  struct winsize ws;
+#ifdef _WIN32
+  CONSOLE_SCREEN_BUFFER_INFO x;
 
-  if (ioctl (STDOUT_FILENO, TIOCGWINSZ, &ws) != -1)
-    return ws.ws_col;
+  if (GetConsoleScreenBufferInfo (GetStdHandle (STD_OUTPUT_HANDLE), &x))
+    return x.dwSize.X;
+#else
+  struct winsize x;
+
+  if (ioctl (STDOUT_FILENO, TIOCGWINSZ, &x) != -1)
+    return x.ws_col;
+#endif
   return FALLBACK_CONSOLE_WIDTH;
 }
 
