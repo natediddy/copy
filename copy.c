@@ -29,7 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/acl.h>
+#ifndef _WIN32
+# include <sys/acl.h>
+#endif
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -738,6 +740,7 @@ get_directory_transfer_dst_path (char *buffer, const char *spath)
   buffer[n_result] = '\0';
 }
 
+#ifndef _WIN32
 static void
 copy_access_control_lists (const char *spath, const char *dpath, mode_t mode)
 {
@@ -779,6 +782,7 @@ copy_access_control_lists (const char *spath, const char *dpath, mode_t mode)
     acl_free (acl);
   }
 }
+#endif
 
 static void
 preserve_attributes (const char *spath, const char *dpath, struct stat *st)
@@ -797,7 +801,9 @@ preserve_attributes (const char *spath, const char *dpath, struct stat *st)
 
   if (preserving_permissions)
   {
+#ifndef _WIN32
     copy_access_control_lists (spath, dpath, st->st_mode);
+#endif
     if (chmod (dpath, st->st_mode) != 0)
       x_error (errno, "failed to preserve permissions for `%s'", dpath);
   }
