@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall
-LIBS = -lacl -lm
+LIBS = -lm
 TARGET = copy
 
 prefix = /usr/local
