@@ -111,6 +111,14 @@ typedef uint64_t byte_t;
 #define progress_interval_has_passed(m) \
   ((m) >= (MILLIS_PER_SEC * update_interval))
 
+#ifdef _WIN32
+# define DIRSEP '\\'
+# define x_mkdir(path) (_mkdir(path) == 0)
+#else
+# define DIRSEP '/'
+# define x_mkdir(path) (mkdir (path, S_IRWXU) == 0)
+#endif
+
 enum
 {
   TYPE_UNKNOWN,
@@ -172,11 +180,15 @@ static struct option const options[] =
 static void
 set_program_name (const char *argv0)
 {
-  const char *p;
+  char *p;
 
   if (argv0 && *argv0)
   {
-    p = strrchr (argv0, '/');
+    p = strrchr (argv0, DIRSEP);
+#ifdef _WIN32
+    if (!p)
+      p = strrchr (argv0, '/');
+#endif
     if (p && *p && *(p + 1))
       program_name = p + 1;
     else
@@ -283,16 +295,16 @@ x_basename (char *buffer, const char *path)
       return;
     }
     last_nonslash = strlen (path) - 1;
-    while ((last_nonslash >= 0) && (path[last_nonslash] == '/'))
+    while ((last_nonslash >= 0) && (path[last_nonslash] == DIRSEP))
       last_nonslash--;
     if (last_nonslash == -1)
     {
-      buffer[0] = '/';
+      buffer[0] = DIRSEP;
       buffer[1] = '\0';
       return;
     }
     base = last_nonslash;
-    while ((base >= 0) && (path[base] != '/'))
+    while ((base >= 0) && (path[base] != DIRSEP))
       base--;
     n = last_nonslash - base;
     if (n >= (PATH_BUFMAX - 1))
@@ -313,13 +325,13 @@ x_dirname (char *buffer, const char *path)
 
   if (path)
   {
-    base = strrchr (path, '/');
+    base = strrchr (path, DIRSEP);
     if (!base)
     {
       memcpy (buffer, ".", 2);
       return;
     }
-    while ((base > path) && (*base == '/'))
+    while ((base > path) && (*base == DIRSEP))
       base--;
     n = (unsigned int) 1 + base - path;
     if (n >= (PATH_BUFMAX - 1))
@@ -351,7 +363,7 @@ abs_path (char *buffer, const char *path)
     n_path = strlen (path);
     if (n_path >= (PATH_BUFMAX - 1))
       die (0, "preventing buffer overflow");
-    if (*path != '/')
+    if (*path != DIRSEP)
     {
       char cwd[PATH_BUFMAX];
       if (!getcwd (cwd, PATH_BUFMAX))
@@ -361,7 +373,7 @@ abs_path (char *buffer, const char *path)
       if (n >= (PATH_BUFMAX - 1))
         die (0, "preventing buffer overflow");
       memcpy (buffer, cwd, n_cwd);
-      buffer[n_cwd] = '/';
+      buffer[n_cwd] = DIRSEP;
       memcpy (buffer + (n_cwd + 1), path, n_path);
       buffer[n] = '\0';
     }
@@ -385,11 +397,15 @@ make_path (const char *path)
   while (*p)
   {
     p++;
-    while (*p && (*p != '/'))
+    while (*p && (*p != DIRSEP)
+#ifdef _WIN32
+           && (*p != '/')
+#endif
+           )
       p++;
     c = *p;
     *p = '\0';
-    if ((mkdir (abs, S_IRWXU) == -1) && (errno != EEXIST))
+    if (!x_mkdir (abs) && (errno != EEXIST))
     {
       x_error (errno, "failed to create directory `%s'", abs);
       exit (EXIT_FAILURE);
@@ -442,7 +458,7 @@ directory_content_size (const char *path, byte_t *size)
     n_child = n_path + n_name + 1;
     char child[n_child + 1];
     memcpy (child, path, n_path);
-    child[n_path] = '/';
+    child[n_path] = DIRSEP;
     memcpy (child + (n_path + 1), ep->d_name, n_name);
     child[n_child] = '\0';
     memset (&st, 0, sizeof (struct stat));
@@ -850,7 +866,7 @@ transfer_directory (const char *root)
     n_child = n_root + n_name + 1;
     char child[n_child + 1];
     memcpy (child, root, n_root);
-    child[n_root] = '/';
+    child[n_root] = DIRSEP;
     memcpy (child + (n_root + 1), ep->d_name, n_name);
     child[n_child] = '\0';
     memset (&st, 0, sizeof (struct stat));
@@ -920,7 +936,7 @@ real_dst_path (char *buffer, const char *dst, int d_type, const char *src)
   x_basename (sbase, src);
   n_sbase = strlen (sbase);
   memcpy (buffer, dst, n_dst);
-  buffer[n_dst] = '/';
+  buffer[n_dst] = DIRSEP;
   memcpy (buffer + (n_dst + 1), sbase, n_sbase);
   buffer[n_dst + n_sbase + 1] = '\0';
 }
