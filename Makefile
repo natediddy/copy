@@ -12,10 +12,14 @@ else
 endif
 
 SOURCES = \
-	copy.c
+	copy.c \
+	copy-md5.c \
+	copy-util.c
 
 OBJECTS = \
-	copy.o
+	copy.o \
+	copy-md5.o \
+	copy-util.o
 
 all: $(TARGET)
 
@@ -24,6 +28,12 @@ $(TARGET): $(OBJECTS)
 
 copy.o: copy.c
 	$(CC) $(CFLAGS) -c copy.c
+
+copy-md5.o: copy-md5.c
+	$(CC) $(CFLAGS) -c copy-md5.c
+
+copy-util.o: copy-util.c
+	$(CC) $(CFLAGS) -c copy-util.c
 
 clean:
 	rm -f $(OBJECTS)
