@@ -17,13 +17,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __COPY_MD5_H__
-#define __COPY_MD5_H__ 
+#ifndef __CHECKSUM_H__
+#define __CHECKSUM_H__ 
 
 #define MD5_DIGEST_SIZE 16
-#define MD5_BUFMAX      (MD5_DIGEST_SIZE * 2 + 1)
+#define CHECKSUM_BUFMAX (MD5_DIGEST_SIZE * 2 + 1)
 
-void get_md5_checksum (char *buffer, const char *path);
+void get_checksum (char *buffer, const char *path);
 
-#endif /* __COPY_MD5_H__ */
+#endif /* __CHECKSUM_H__ */
 

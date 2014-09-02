@@ -24,8 +24,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "copy-md5.h"
-#include "copy-util.h"
+#include "checksum.h"
+#include "utils.h"
 
 #define S11  7
 #define S12 12
@@ -291,18 +291,18 @@ md5_final (struct md5_ctx *ctx, unsigned char digest[MD5_DIGEST_SIZE])
 }
 
 static void
-md5_from_digest (char buffer[MD5_BUFMAX],
+md5_from_digest (char buffer[CHECKSUM_BUFMAX],
                  unsigned char digest[MD5_DIGEST_SIZE])
 {
   unsigned int i;
 
   for (i = 0; i < MD5_DIGEST_SIZE; i++)
     sprintf (buffer + i * 2, "%02x", digest[i]);
-  buffer[MD5_BUFMAX - 1] = '\0';
+  buffer[CHECKSUM_BUFMAX - 1] = '\0';
 }
 
 void
-get_md5_checksum (char *buffer, const char *path)
+get_checksum (char *buffer, const char *path)
 {
   struct md5_ctx ctx;
   FILE *fp;

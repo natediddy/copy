@@ -22,26 +22,14 @@
 #include <math.h>
 #include <string.h>
 
-#include "copy-md5.h"
-#include "copy-util.h"
+#include "checksum.h"
+#include "progress.h"
+#include "utils.h"
 
 #define PROGRAM_NAME    "copy"
-#define PROGRAM_VERSION "1.1.1"
-
-#define PROGRESS_OUT_BUFMAX 1024
-
-#define PROGRESS_BAR_START     '['
-#define PROGRESS_BAR_SO_FAR    '='
-#define PROGRESS_BAR_HEAD      '>'
-#define PROGRESS_BAR_REMAINING ' '
-#define PROGRESS_BAR_END       ']'
+#define PROGRAM_VERSION "1.1.2"
 
 #define CHUNK_SIZE 10000
-
-#define UPDATE_INTERVAL 0.5
-
-#define progress_interval_has_passed(m) \
-  ((m) >= (MILLISECONDS_PER_SECOND * update_interval))
 
 enum
 {
@@ -59,38 +47,23 @@ enum
   NO_REPORT_OPTION
 };
 
-const char *program_name;
+/* global variables */
+const char *          program_name;
+size_t                total_sources          =                        0;
+byte_t                total_bytes            =               BYTE_C (0);
+byte_t                so_far_bytes           =               BYTE_C (0);
+double                update_interval        = PROGRESS_UPDATE_INTERVAL;
 
-static bool           showing_progress                   =            true;
-static bool           showing_report                     =            true;
-static bool           preserving_ownership               =           false;
-static bool           preserving_permissions             =           false;
-static bool           preserving_timestamp               =           false;
-static bool           verifying_checksums                =           false;
-static size_t         total_sources                      =               0;
-static byte_t         total_bytes                        =      BYTE_C (0);
-static byte_t         so_far_bytes                       =      BYTE_C (0);
-static double         update_interval                    = UPDATE_INTERVAL;
-static struct timeval start_time                                          ;
-static char           directory_transfer_source_root         [PATH_BUFMAX];
-static char           directory_transfer_destination_root    [PATH_BUFMAX];
-
-struct
-{
-  size_t n_source;
-  byte_t total;
-  byte_t so_far;
-  struct timeval i_last;
-  struct timeval i_current;
-  char s_total[SIZE_BUFMAX];
-  struct
-  {
-    int size;
-    int stop_pos;
-    int so_far_pos;
-    long double factor;
-  } bar;
-} p_data;
+/* local variables */
+static bool           showing_progress       =                     true;
+static bool           showing_report         =                     true;
+static bool           preserving_ownership   =                    false;
+static bool           preserving_permissions =                    false;
+static bool           preserving_timestamp   =                    false;
+static bool           verifying_checksums    =                    false;
+static struct timeval start_time;
+static char           directory_transfer_source_root[PATH_BUFMAX];
+static char           directory_transfer_destination_root[PATH_BUFMAX];
 
 static struct option const options[] =
 {
@@ -242,162 +215,6 @@ directory_content_size (const char *path, byte_t *size)
 }
 
 static void
-progress_init (byte_t total, size_t n_source)
-{
-  p_data.n_source = n_source;
-  p_data.total = total;
-  p_data.so_far = BYTE_C (0);
-  p_data.i_last.tv_sec = -1;
-  p_data.i_last.tv_usec = -1;
-  p_data.i_current.tv_sec = -1;
-  p_data.i_current.tv_usec = -1;
-  format_size (p_data.s_total, p_data.total, false);
-  memset (&p_data.bar, 0, sizeof (p_data.bar));
-}
-
-static void
-progress_printf (int *remaining_space, const char *fmt, ...)
-{
-  va_list args;
-  char buffer[PROGRESS_OUT_BUFMAX];
-
-  /* We need to write the formatted string to a buffer first
-     in order to obtain its length so it can be subtracted from
-     the remaining space of the console */
-  va_start (args, fmt);
-  vsnprintf (buffer, PROGRESS_OUT_BUFMAX, fmt, args);
-  va_end (args);
-  fputs (buffer, stdout);
-  *remaining_space -= (int) strlen (buffer);
-}
-
-static void
-progress_putchar (int *remaining_space, char c)
-{
-  fputc (c, stdout);
-  (*remaining_space)--;
-}
-
-static void
-progress_bar_set (int remaining_space, int end_string_sizes)
-{
-  p_data.bar.stop_pos = end_string_sizes;
-  p_data.bar.size = remaining_space - p_data.bar.stop_pos - 2;
-  p_data.bar.factor =
-    (BYTE_TO_LDBL (p_data.so_far) / BYTE_TO_LDBL (p_data.total));
-  p_data.bar.so_far_pos = roundl (p_data.bar.factor * p_data.bar.size);
-}
-
-static void
-progress_show (void)
-{
-  /*
-   * Progress format:
-   *
-   *   For example if copying a single item that is 1GB:
-   *       500.0M/1.0G [=======================>                       ] 50%
-   *
-   *   For example if copying 4 items that are 1GB each:
-   *       100% 1.0G/1.0G (item 1/4) [===============>] total: 1.0G/4.0G 25%
-   *       100% 1.0G/1.0G (item 2/4) [===============>] total: 2.0G/4.0G 50%
-   *       100% 1.0G/1.0G (item 3/4) [===============>] total: 3.0G/4.0G 75%
-   *       50% 500.0M/1.0G (item 4/4) [=======>       ] total: 3.5G/4.0G 87%
-   *   Each item will get its own line and progress bar.
-   */
-
-  int x;
-  int remaining_space;
-  int end_string_sizes;
-  char p_so_far[PERCENT_BUFMAX];
-  char s_so_far[SIZE_BUFMAX];
-  char p_total_total[PERCENT_BUFMAX];
-  char s_total_so_far[SIZE_BUFMAX];
-  char s_total_total[SIZE_BUFMAX];
-
-  format_percent (p_so_far, p_data.so_far, p_data.total);
-  format_size (s_so_far, p_data.so_far, false);
-  remaining_space = console_width ();
-
-  if (total_sources > 1)
-  {
-    progress_printf (&remaining_space, "%s %s/%s (item %zu/%zu) ",
-                     p_so_far, s_so_far, p_data.s_total,
-                     p_data.n_source, total_sources);
-    format_percent (p_total_total, so_far_bytes, total_bytes);
-    format_size (s_total_so_far, so_far_bytes, false);
-    format_size (s_total_total, total_bytes, false);
-    end_string_sizes = strlen (" total: ") + strlen (s_total_so_far) +
-                       strlen (s_total_total) + strlen (p_total_total) + 3;
-  }
-  else
-  {
-    progress_printf (&remaining_space, "%s/%s ", s_so_far, p_data.s_total);
-    end_string_sizes = strlen (p_so_far) + 2;
-  }
-
-  progress_bar_set (remaining_space, end_string_sizes);
-  if (p_data.bar.size)
-  {
-    progress_putchar (&remaining_space, PROGRESS_BAR_START);
-    for (x = 0; (x < p_data.bar.so_far_pos); ++x)
-      progress_putchar (&remaining_space, PROGRESS_BAR_SO_FAR);
-    progress_putchar (&remaining_space, PROGRESS_BAR_HEAD);
-    for (; (x < p_data.bar.size); ++x)
-      progress_putchar (&remaining_space, PROGRESS_BAR_REMAINING);
-    progress_putchar (&remaining_space, PROGRESS_BAR_END);
-  }
-
-  if (total_sources > 1)
-    progress_printf (&remaining_space, " total: %s/%s %s",
-                     s_total_so_far, s_total_total, p_total_total);
-  else
-    progress_printf (&remaining_space, " %s", p_so_far);
-
-  fputc ('\r', stdout);
-  fflush (stdout);
-}
-
-static void
-progress_finish (void)
-{
-  progress_show ();
-  fputc ('\n', stdout);
-}
-
-static long
-progress_interval_init (void)
-{
-  if ((p_data.i_last.tv_sec != -1) && (p_data.i_last.tv_usec != -1))
-  {
-    x_gettimeofday (&p_data.i_current);
-    return get_milliseconds (&p_data.i_last, &p_data.i_current);
-  }
-  return -1;
-}
-
-static void
-progress_interval_update (long milliseconds)
-{
-  if (milliseconds != -1)
-    memcpy (&p_data.i_last, &p_data.i_current, sizeof (struct timeval));
-  else
-    x_gettimeofday (&p_data.i_last);
-}
-
-static void
-progress_update (void)
-{
-  long m;
-
-  m = progress_interval_init ();
-  if ((m == -1) || progress_interval_has_passed (m))
-  {
-    progress_show ();
-    progress_interval_update (m);
-  }
-}
-
-static void
 transfer_file (const char *src_path,
                const char *dst_path)
 {
@@ -421,10 +238,8 @@ transfer_file (const char *src_path,
     unsigned char chunk[CHUNK_SIZE];
     bytes_read = fread (chunk, 1, CHUNK_SIZE, src_fp);
     fwrite (chunk, 1, bytes_read, dst_fp);
-    p_data.so_far += (byte_t) bytes_read;
-    so_far_bytes += (byte_t) bytes_read;
     if (showing_progress)
-      progress_update ();
+      progress_update (bytes_read);
     if (ferror (src_fp) || feof (src_fp))
       break;
   }
@@ -607,24 +422,59 @@ check_real_destination_path (const char *rpath)
 static void
 verify_checksums (const char *src_path, const char *dst_path)
 {
-  char src_sum[MD5_BUFMAX];
-  char dst_sum[MD5_BUFMAX];
+  int x;
+  char src_sum[CHECKSUM_BUFMAX];
+  char dst_sum[CHECKSUM_BUFMAX];
 
+  for (x = console_width (); (x > 0); --x)
+    fputc ('-', stdout);
+  fputc ('\n', stdout);
   fputs ("Verifying MD5 checksums... ", stdout);
-  get_md5_checksum (src_sum, src_path);
-  get_md5_checksum (dst_sum, dst_path);
+
+  get_checksum (src_sum, src_path);
+  get_checksum (dst_sum, dst_path);
   if (!streq (src_sum, dst_sum, false))
   {
     fputs ("FAILED\n", stdout);
     fprintf (stderr,
              "  Source:\n"
              "    %s\n"
+             "    %s\n"
              "  Destination (CORRUPT):\n"
+             "    %s\n"
              "    %s\n",
-             src_path, dst_path);
+             src_path, src_sum, dst_path, dst_sum);
   }
   else
+  {
     fputs ("PASSED\n", stdout);
+    printf ("  Source:\n"
+            "    %s\n"
+            "    %s\n"
+            "  Destination:\n"
+            "    %s\n"
+            "    %s\n",
+            src_path, src_sum, dst_path, dst_sum);
+  }
+}
+
+static void
+report_init (void)
+{
+  x_gettimeofday (&start_time);
+}
+
+static void
+report_show (void)
+{
+  struct timeval end_time;
+  char time_taken[TIME_BUFMAX];
+  char total_copied[SIZE_BUFMAX];
+
+  format_size (total_copied, total_bytes, true);
+  x_gettimeofday (&end_time);
+  format_time (time_taken, &start_time, &end_time);
+  printf ("Copied %s in %s\n", total_copied, time_taken);
 }
 
 static void
@@ -715,35 +565,31 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
   }
 
   total_sources = n_src;
-  for (x = 0; (x < n_src); ++x)
+
+  if (showing_report)
+    report_init ();
+
+  for (x = 0; (x < total_sources); ++x)
   {
     char rpath[PATH_BUFMAX];
     get_real_destination_path (rpath, dst_path, dst_type, src_path[x]);
     if (!check_real_destination_path (rpath))
       break;
     do_copy (src_path[x], src_type[x], src_size[x], x + 1, rpath, dst_type);
-    if (verifying_checksums)
-      verify_checksums (src_path[x], rpath);
   }
-}
 
-static void
-report_init (void)
-{
-  x_gettimeofday (&start_time);
-}
+  if (showing_report)
+    report_show ();
 
-static void
-report_show (void)
-{
-  struct timeval end_time;
-  char time_taken[TIME_BUFMAX];
-  char total_copied[SIZE_BUFMAX];
-
-  format_size (total_copied, total_bytes, true);
-  x_gettimeofday (&end_time);
-  format_time (time_taken, &start_time, &end_time);
-  printf ("Copied %s in %s\n", total_copied, time_taken);
+  if (verifying_checksums)
+  {
+    for (x = 0; (x < total_sources); ++x)
+    {
+      char rpath[PATH_BUFMAX];
+      get_real_destination_path (rpath, dst_path, dst_type, src_path[x]);
+      verify_checksums (src_path[x], rpath);
+    }
+  }
 }
 
 int
@@ -782,7 +628,7 @@ main (int argc, char **argv)
         if ((update_interval < 0.0) ||
             isnan (update_interval) ||
             isinf (update_interval))
-        update_interval = UPDATE_INTERVAL;
+        update_interval = PROGRESS_UPDATE_INTERVAL;
         break;
       case 'V':
         verifying_checksums = true;
@@ -820,13 +666,7 @@ main (int argc, char **argv)
   files[n_files] = NULL;
   src_path = (const char **) files;
 
-  if (showing_report)
-    report_init ();
-
   try_copy (src_path, n_files, dst_path);
-
-  if (showing_report)
-    report_show ();
   exit (EXIT_SUCCESS);
 }
 

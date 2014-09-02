@@ -12,28 +12,33 @@ else
 endif
 
 SOURCES = \
-	copy.c \
-	copy-md5.c \
-	copy-util.c
+	main.c \
+	checksum.c \
+	progress.c \
+	utils.c
 
 OBJECTS = \
-	copy.o \
-	copy-md5.o \
-	copy-util.o
+	main.o \
+	checksum.o \
+	progress.o \
+	utils.o
 
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(CFLAGS) $(OBJECTS) -o $(TARGET) $(LIBS)
 
-copy.o: copy.c
-	$(CC) $(CFLAGS) -c copy.c
+main.o: main.c
+	$(CC) $(CFLAGS) -c main.c
 
-copy-md5.o: copy-md5.c
-	$(CC) $(CFLAGS) -c copy-md5.c
+checksum.o: checksum.c
+	$(CC) $(CFLAGS) -c checksum.c
 
-copy-util.o: copy-util.c
-	$(CC) $(CFLAGS) -c copy-util.c
+progress.o: progress.c
+	$(CC) $(CFLAGS) -c progress.c
+
+utils.o: utils.c
+	$(CC) $(CFLAGS) -c utils.c
 
 clean:
 	rm -f $(OBJECTS)

@@ -29,7 +29,7 @@
 # include <windows.h>
 #endif
 
-#include "copy-util.h"
+#include "utils.h"
 
 #define B_SHORT  "B"
 #define KB_SHORT "K"

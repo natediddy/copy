@@ -17,8 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __COPY_UTIL_H__
-#define __COPY_UTIL_H__
+#ifndef __UTILS_H__
+#define __UTILS_H__
 
 #include <dirent.h>
 #include <errno.h>
@@ -106,5 +106,5 @@ void format_percent (char *buffer, byte_t so_far, byte_t total);
 int console_width (void);
 void preserve_timestamp (const char *path, time_t atime, time_t mtime);
 
-#endif /* __COPY_UTIL_H__ */
+#endif /* __UTILS_H__ */
 
