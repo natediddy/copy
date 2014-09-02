@@ -249,7 +249,7 @@ transfer_file (const char *src_path,
 }
 
 static void
-get_directory_transfer_destination_path(char *buffer, const char *src_path)
+get_directory_transfer_destination_path (char *buffer, const char *src_path)
 {
   size_t n_src_path;
   size_t n_src_root;
