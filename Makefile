@@ -5,6 +5,11 @@ TARGET = copy
 
 prefix = /usr/local
 
+ifneq ($(nobeep),true)
+	CFLAGS += -DBEEP_SUPPORT
+	LIBS += -lSDL -lSDL_sound
+endif
+
 ifeq ($(debug),true)
 	CFLAGS += -g -O0 -DDEBUGGING
 else

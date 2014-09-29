@@ -22,12 +22,21 @@
 #include <math.h>
 #include <string.h>
 
+#ifdef BEEP_SUPPORT
+# include <SDL/SDL.h>
+# include <SDL/SDL_sound.h>
+#endif
+
 #include "checksum.h"
 #include "progress.h"
 #include "utils.h"
 
 #define PROGRAM_NAME    "copy"
-#define PROGRAM_VERSION "1.1.2"
+#define PROGRAM_VERSION "1.1.3"
+
+#ifdef BEEP_SUPPORT
+# define BEEP_FILE_PATH "/usr/share/sounds/freedesktop/stereo/complete.oga"
+#endif
 
 #define CHUNK_SIZE 10000
 
@@ -43,9 +52,20 @@ enum
 /* long options with no corresponding short options */
 enum
 {
-  NO_PROGRESS_OPTION = CHAR_MAX + 1,
+  NO_BEEP_OPTION = CHAR_MAX + 1,
+  NO_PROGRESS_OPTION,
   NO_REPORT_OPTION
 };
+
+#ifdef BEEP_SUPPORT
+struct beep_callback_data
+{
+  Uint32 bytes;
+  SDL_AudioSpec fmt;
+  Uint8 *ptr;
+  Sound_Sample *sample;
+};
+#endif
 
 /* global variables */
 const char *          program_name;
@@ -55,12 +75,18 @@ byte_t                so_far_bytes           =               BYTE_C (0);
 double                update_interval        = PROGRESS_UPDATE_INTERVAL;
 
 /* local variables */
+#ifdef BEEP_SUPPORT
+static bool           playing_beep           =                     true;
+#endif
 static bool           showing_progress       =                     true;
 static bool           showing_report         =                     true;
 static bool           preserving_ownership   =                    false;
 static bool           preserving_permissions =                    false;
 static bool           preserving_timestamp   =                    false;
 static bool           verifying_checksums    =                    false;
+#ifdef BEEP_SUPPORT
+static volatile int   beep_done              =                        0;
+#endif
 static struct timeval start_time;
 static char           directory_transfer_source_root[PATH_BUFMAX];
 static char           directory_transfer_destination_root[PATH_BUFMAX];
@@ -73,6 +99,9 @@ static struct option const options[] =
   {"preserve-timestamp", no_argument, NULL, 't'},
   {"update-interval", required_argument, NULL, 'u'},
   {"verify", no_argument, NULL, 'V'},
+#ifdef BEEP_SUPPORT
+  {"no-beep", no_argument, NULL, NO_BEEP_OPTION},
+#endif
   {"no-progress", no_argument, NULL, NO_PROGRESS_OPTION},
   {"no-report", no_argument, NULL, NO_REPORT_OPTION},
   {"help", no_argument, NULL, 'h'},
@@ -126,6 +155,10 @@ usage (bool had_error)
            "                      with their corresponding SOURCE file.\n"
            "                      Note that this will take quite a bit more\n"
            "                      time to complete.\n"
+#ifdef BEEP_SUPPORT
+           "  --no-beep           Do not play the beep notification when\n"
+           "                      finished.\n"
+#endif
            "  --no-progress       Do not show any progress during copy\n"
            "                      operations.\n"
            "  --no-report         Do not show completion report after\n"
@@ -150,6 +183,86 @@ version (void)
          stdout);
   exit (EXIT_SUCCESS);
 }
+
+#ifdef BEEP_SUPPORT
+static void
+beep_callback (void *data, Uint8 *stream, int len)
+{
+  int n;
+  int so_far;
+  struct beep_callback_data *p;
+  Sound_Sample *sample;
+
+  n = 0;
+  p = (struct beep_callback_data *) data;
+  sample = p->sample;
+
+  while (n < len)
+  {
+    if (p->bytes == 0)
+    {
+      if (((sample->flags & SOUND_SAMPLEFLAG_ERROR) == 0) &&
+          ((sample->flags & SOUND_SAMPLEFLAG_EOF) == 0))
+      {
+        p->bytes = Sound_Decode (sample);
+        p->ptr = sample->buffer;
+      }
+      if (p->bytes == 0)
+      {
+        memset (stream + n, 0, len - n);
+        beep_done = 1;
+        return;
+      }
+    }
+    so_far = len - n;
+    if (so_far > p->bytes)
+      so_far = p->bytes;
+    if (so_far > 0)
+    {
+      memcpy (stream + n, (Uint8 *) p->ptr, so_far);
+      n += so_far;
+      p->ptr += so_far;
+      p->bytes -= so_far;
+    }
+  }
+}
+
+static void
+play_beep (void)
+{
+  struct beep_callback_data data;
+
+  memset (&data, 0, sizeof (struct beep_callback_data));
+  data.sample = Sound_NewSampleFromFile (BEEP_FILE_PATH, NULL, 65536);
+  if (!data.sample)
+    return;
+
+  data.fmt.freq = data.sample->actual.rate;
+  data.fmt.format = data.sample->actual.format;
+  data.fmt.channels = data.sample->actual.channels;
+  data.fmt.samples = 4096;
+  data.fmt.callback = beep_callback;
+  data.fmt.userdata = &data;
+
+  if (SDL_OpenAudio (&data.fmt, NULL) < 0)
+  {
+    Sound_FreeSample (data.sample);
+    return;
+  }
+
+  SDL_PauseAudio (0);
+  beep_done = 0;
+
+  while (!beep_done)
+    SDL_Delay (10);
+
+  SDL_PauseAudio (1);
+  SDL_Delay (2 * 1000 * data.fmt.samples / data.fmt.freq);
+
+  Sound_FreeSample (data.sample);
+  SDL_CloseAudio ();
+}
+#endif
 
 static void
 set_directory_transfer_source_root (const char *src)
@@ -578,6 +691,15 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
     do_copy (src_path[x], src_type[x], src_size[x], x + 1, rpath, dst_type);
   }
 
+#ifdef BEEP_SUPPORT
+  if (playing_beep && Sound_Init ())
+  {
+    play_beep ();
+    Sound_Quit ();
+    SDL_Quit ();
+  }
+#endif
+
   if (showing_report)
     report_show ();
 
@@ -633,6 +755,11 @@ main (int argc, char **argv)
       case 'V':
         verifying_checksums = true;
         break;
+#ifdef BEEP_SUPPORT
+      case NO_BEEP_OPTION:
+        playing_beep = false;
+        break;
+#endif
       case NO_PROGRESS_OPTION:
         showing_progress = false;
         break;
