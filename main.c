@@ -691,6 +691,9 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
     do_copy (src_path[x], src_type[x], src_size[x], x + 1, rpath, dst_type);
   }
 
+  if (showing_report)
+    report_show ();
+
 #ifdef BEEP_SUPPORT
   if (playing_beep && Sound_Init ())
   {
@@ -699,9 +702,6 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
     SDL_Quit ();
   }
 #endif
-
-  if (showing_report)
-    report_show ();
 
   if (verifying_checksums)
   {
