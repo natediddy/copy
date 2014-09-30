@@ -12,6 +12,11 @@ Usage
 
 Options
 -------
+    -n, --no-sound                 Do not play the notification sound when
+                                   copy operations are completed.
+                                   NOTE: This option only exists if the
+                                         program was compiled with sound
+                                         support!
     -o, --preserve-ownership       Preserve ownership.
     -p, --preserve-permissions     Preserve permissions.
     -P, --preserve-all             Preserve all timestamp, ownership, and
@@ -31,10 +36,38 @@ Options
     -h, --help                     Print this text and exit.
     -v, --version                  Print version information and exit.
 
-Installing
-----------
-Some Windows code has been added but this program most likely will only run
-Linux machines (developed on Ubuntu 12.04).
+Compiling and Installing
+------------------------
+Some Windows code has been added but this program will most likely only run on
+Linux machines. It was written on Ubuntu 12.04.
+
+To set up the build environment, navigate to the copy source directory and
+run:
+
+    ./autogen.sh
+
+To configure:
+
+    ./configure
+
+If you would like to enable the handy notification sound upon completion of
+all copy operations, make sure SDL and SDL_sound are installed on your
+machine, and then run:
+
+    ./configure --enable-sound
+
+To compile:
 
     make
+
+And finally to install to the default location of /usr/local/bin:
+
     sudo make install
+
+If you would like to install to another location (such as /usr/bin in the
+following example), use the 'prefix' variable:
+
+    sudo make prefix=/usr install
+
+If the '--enable-sound' option was used earlier when calling ./configure, the
+audio file 'complete.oga' will be installed at: <prefix>/share/copy/sounds/complete.oga.

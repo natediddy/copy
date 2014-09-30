@@ -24,8 +24,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "checksum.h"
-#include "utils.h"
+#include "copy-checksum.h"
+#include "copy-utils.h"
 
 #define S11  7
 #define S12 12

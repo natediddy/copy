@@ -17,10 +17,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __PROGRESS_H__
-#define __PROGRESS_H__
+#ifndef __COPY_PROGRESS_H__
+#define __COPY_PROGRESS_H__
 
-#include "utils.h"
+#include "copy-utils.h"
 
 /* the default value */
 #define PROGRESS_UPDATE_INTERVAL 0.5
@@ -29,5 +29,5 @@ void progress_init (byte_t current_total_bytes, size_t src_item);
 void progress_finish (void);
 void progress_update (byte_t bytes);
 
-#endif /* __PROGRESS_H__ */
+#endif /* __COPY_PROGRESS_H__ */
 

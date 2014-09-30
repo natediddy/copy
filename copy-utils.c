@@ -29,7 +29,7 @@
 # include <windows.h>
 #endif
 
-#include "utils.h"
+#include "copy-utils.h"
 
 #define B_SHORT  "B"
 #define KB_SHORT "K"
@@ -148,7 +148,7 @@ absolute_path (char *buffer, const char *path)
       if (n >= (PATH_BUFMAX - 1))
         die (0, "preventing buffer overflow");
       memcpy (buffer, cwd, n_cwd);
-      buffer[n_cwd] = DIR_SEPARATOR;
+      buffer[n_cwd] = DIR_SEPARATOR_C;
       memcpy (buffer + (n_cwd + 1), path, n_path);
       buffer[n] = '\0';
     }
@@ -325,14 +325,14 @@ basename (char *buffer, const char *path)
       last_non_slash--;
     if (last_non_slash == -1)
     {
-      buffer[0] = DIR_SEPARATOR;
+      buffer[0] = DIR_SEPARATOR_C;
       buffer[1] = '\0';
       return;
     }
 #ifdef _WIN32
     if ((last_non_slash == 1) && isalpha (path[0]) && (path[1] == ':'))
     {
-      buffer[0] = DIR_SEPARATOR;
+      buffer[0] = DIR_SEPARATOR_C;
       buffer[1] = '\0';
       return;
     }
@@ -363,7 +363,7 @@ dirname (char *buffer, const char *path)
 
   if (path)
   {
-    base = strrchr (path, DIR_SEPARATOR);
+    base = strrchr (path, DIR_SEPARATOR_C);
 #ifdef _WIN32
     {
       char *p = strrchr (path, '/');
@@ -407,7 +407,7 @@ dirname (char *buffer, const char *path)
         if (n >= (PATH_BUFMAX - 1))
           n = PATH_BUFMAX - 1;
         strcpy (buffer, path);
-        buffer[n - 1] = DIR_SEPARATOR;
+        buffer[n - 1] = DIR_SEPARATOR_C;
         buffer[n] = '\0';
         return;
       }

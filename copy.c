@@ -17,25 +17,26 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifdef HAVE_CONFIG_H
+# include "copy-config.h"
+#endif
+
 #include <getopt.h>
 #include <limits.h>
 #include <math.h>
 #include <string.h>
 
-#ifdef BEEP_SUPPORT
-# include <SDL/SDL.h>
-# include <SDL/SDL_sound.h>
+#ifdef ENABLE_SOUND
+# include "SDL/SDL.h"
+# include "SDL/SDL_sound.h"
 #endif
 
-#include "checksum.h"
-#include "progress.h"
-#include "utils.h"
+#include "copy-checksum.h"
+#include "copy-progress.h"
+#include "copy-utils.h"
 
-#define PROGRAM_NAME    "copy"
-#define PROGRAM_VERSION "1.1.3"
-
-#ifdef BEEP_SUPPORT
-# define BEEP_FILE_PATH "/usr/share/sounds/freedesktop/stereo/complete.oga"
+#ifdef ENABLE_SOUND
+# define SOUND_PATH SOUNDSDIR DIR_SEPARATOR_S SOUNDFILE
 #endif
 
 #define CHUNK_SIZE 10000
@@ -52,17 +53,16 @@ enum
 /* long options with no corresponding short options */
 enum
 {
-  NO_BEEP_OPTION = CHAR_MAX + 1,
-  NO_PROGRESS_OPTION,
+  NO_PROGRESS_OPTION = CHAR_MAX + 1,
   NO_REPORT_OPTION
 };
 
-#ifdef BEEP_SUPPORT
-struct beep_callback_data
+#ifdef ENABLE_SOUND
+struct sound_data
 {
-  Uint32 bytes;
-  SDL_AudioSpec fmt;
-  Uint8 *ptr;
+  Uint32 decoded_bytes;
+  SDL_AudioSpec device_format;
+  Uint8 *decoded_ptr;
   Sound_Sample *sample;
 };
 #endif
@@ -75,8 +75,9 @@ byte_t                so_far_bytes           =               BYTE_C (0);
 double                update_interval        = PROGRESS_UPDATE_INTERVAL;
 
 /* local variables */
-#ifdef BEEP_SUPPORT
-static bool           playing_beep           =                     true;
+#ifdef ENABLE_SOUND
+static bool           playing_sound          =                     true;
+static volatile int   sound_done             =                        0;
 #endif
 static bool           showing_progress       =                     true;
 static bool           showing_report         =                     true;
@@ -84,24 +85,21 @@ static bool           preserving_ownership   =                    false;
 static bool           preserving_permissions =                    false;
 static bool           preserving_timestamp   =                    false;
 static bool           verifying_checksums    =                    false;
-#ifdef BEEP_SUPPORT
-static volatile int   beep_done              =                        0;
-#endif
 static struct timeval start_time;
 static char           directory_transfer_source_root[PATH_BUFMAX];
 static char           directory_transfer_destination_root[PATH_BUFMAX];
 
 static struct option const options[] =
 {
+#ifdef ENABLE_SOUND
+  {"no-sound", no_argument, NULL, 'n'},
+#endif
   {"preserve-ownership", no_argument, NULL, 'o'},
   {"preserve-permissions", no_argument, NULL, 'p'},
   {"preserve-all", no_argument, NULL, 'P'},
   {"preserve-timestamp", no_argument, NULL, 't'},
   {"update-interval", required_argument, NULL, 'u'},
   {"verify", no_argument, NULL, 'V'},
-#ifdef BEEP_SUPPORT
-  {"no-beep", no_argument, NULL, NO_BEEP_OPTION},
-#endif
   {"no-progress", no_argument, NULL, NO_PROGRESS_OPTION},
   {"no-report", no_argument, NULL, NO_REPORT_OPTION},
   {"help", no_argument, NULL, 'h'},
@@ -116,7 +114,7 @@ set_program_name (const char *argv0)
 
   if (argv0 && *argv0)
   {
-    p = strrchr (argv0, DIR_SEPARATOR);
+    p = strrchr (argv0, DIR_SEPARATOR_C);
 #ifdef _WIN32
     if (!p)
       p = strrchr (argv0, '/');
@@ -127,7 +125,7 @@ set_program_name (const char *argv0)
       program_name = argv0;
     return;
   }
-  program_name = PROGRAM_NAME;
+  program_name = PACKAGE_NAME;
 }
 
 static void
@@ -138,7 +136,12 @@ usage (bool had_error)
            program_name);
 
   if (!had_error)
+  {
     fputs ("Options:\n"
+#ifdef ENABLE_SOUND
+           "  -n, --no-sound      Do not play the notification sound when\n"
+           "                      copy operations are completed.\n"
+#endif
            "  -o, --preserve-ownership\n"
            "                      Preserve ownership.\n"
            "  -p, --preserve-permissions\n"
@@ -155,10 +158,6 @@ usage (bool had_error)
            "                      with their corresponding SOURCE file.\n"
            "                      Note that this will take quite a bit more\n"
            "                      time to complete.\n"
-#ifdef BEEP_SUPPORT
-           "  --no-beep           Do not play the beep notification when\n"
-           "                      finished.\n"
-#endif
            "  --no-progress       Do not show any progress during copy\n"
            "                      operations.\n"
            "  --no-report         Do not show completion report after\n"
@@ -166,17 +165,16 @@ usage (bool had_error)
            "  -h, --help          Print this text and exit.\n"
            "  -v, --version       Print version information and exit.\n",
            stdout);
-
-  if (had_error)
-    exit (EXIT_FAILURE);
-  exit (EXIT_SUCCESS);
+    exit (EXIT_SUCCESS);
+  }
+  exit (EXIT_FAILURE);
 }
 
 static void
 version (void)
 {
-  fputs (PROGRAM_NAME " " PROGRAM_VERSION "\n"
-         "Copyright (C) 2014 Nathan Forbes <sforbes41@gmail.com>\n"
+  fputs (PACKAGE_NAME " " PACKAGE_VERSION "\n"
+         "Copyright (C) 2014 Nathan Forbes <" PACKAGE_BUGREPORT ">\n"
          "This is free software; see the source for copying conditions.\n"
          "There is NO warranty; not even for MERCHANTABILITY or FITNESS\n"
          "FOR A PARTICULAR PURPOSE.\n",
@@ -184,81 +182,102 @@ version (void)
   exit (EXIT_SUCCESS);
 }
 
-#ifdef BEEP_SUPPORT
+#ifdef ENABLE_SOUND
 static void
-beep_callback (void *data, Uint8 *stream, int len)
+sound_callback (void *data, Uint8 *stream, int len)
 {
-  int n;
-  int so_far;
-  struct beep_callback_data *p;
-  Sound_Sample *sample;
+  int size;
+  int written;
+  struct sound_data *p;
 
-  n = 0;
-  p = (struct beep_callback_data *) data;
-  sample = p->sample;
+  size = 0;
+  p = (struct sound_data *) data;
 
-  while (n < len)
+  while (size < len)
   {
-    if (p->bytes == 0)
+    if (p->decoded_bytes == 0)
     {
-      if (((sample->flags & SOUND_SAMPLEFLAG_ERROR) == 0) &&
-          ((sample->flags & SOUND_SAMPLEFLAG_EOF) == 0))
+      if (((p->sample->flags & SOUND_SAMPLEFLAG_ERROR) == 0) &&
+          ((p->sample->flags & SOUND_SAMPLEFLAG_EOF) == 0))
       {
-        p->bytes = Sound_Decode (sample);
-        p->ptr = sample->buffer;
+        p->decoded_bytes = Sound_Decode (p->sample);
+        p->decoded_ptr = p->sample->buffer;
       }
-      if (p->bytes == 0)
+      if (p->decoded_bytes == 0)
       {
-        memset (stream + n, 0, len - n);
-        beep_done = 1;
+        memset (stream + size, 0, len - size);
+        sound_done = 1;
         return;
       }
     }
-    so_far = len - n;
-    if (so_far > p->bytes)
-      so_far = p->bytes;
-    if (so_far > 0)
+    written = len - size;
+    if (written > p->decoded_bytes)
+      written = p->decoded_bytes;
+    if (written > 0)
     {
-      memcpy (stream + n, (Uint8 *) p->ptr, so_far);
-      n += so_far;
-      p->ptr += so_far;
-      p->bytes -= so_far;
+      memcpy (stream + size, (Uint8 *) p->decoded_ptr, written);
+      size += written;
+      p->decoded_ptr += written;
+      p->decoded_bytes -= written;
     }
   }
 }
 
 static void
-play_beep (void)
+get_sound_file_path (char *buffer)
 {
-  struct beep_callback_data data;
+  struct stat s;
 
-  memset (&data, 0, sizeof (struct beep_callback_data));
-  data.sample = Sound_NewSampleFromFile (BEEP_FILE_PATH, NULL, 65536);
+  *buffer = '\0';
+  memset (&s, 0, sizeof (struct stat));
+
+  if ((stat (SOUNDFILE, &s) == 0) && S_ISREG (s.st_mode))
+    memcpy (buffer, SOUNDFILE, strlen (SOUNDFILE) + 1);
+  else
+  {
+    memset (&s, 0, sizeof (struct stat));
+    if ((stat (SOUND_PATH, &s) == 0) && S_ISREG (s.st_mode))
+      memcpy (buffer, SOUND_PATH, strlen (SOUND_PATH) + 1);
+  }
+}
+
+static void
+play_sound (void)
+{
+  struct sound_data data;
+  char path[PATH_BUFMAX];
+
+  get_sound_file_path (path);
+  if (!*path)
+    return;
+
+  memset (&data, 0, sizeof (struct sound_data));
+  data.sample = Sound_NewSampleFromFile (path, NULL, 65536);
+
   if (!data.sample)
     return;
 
-  data.fmt.freq = data.sample->actual.rate;
-  data.fmt.format = data.sample->actual.format;
-  data.fmt.channels = data.sample->actual.channels;
-  data.fmt.samples = 4096;
-  data.fmt.callback = beep_callback;
-  data.fmt.userdata = &data;
+  data.device_format.freq = data.sample->actual.rate;
+  data.device_format.format = data.sample->actual.format;
+  data.device_format.channels = data.sample->actual.channels;
+  data.device_format.samples = 4096;
+  data.device_format.callback = sound_callback;
+  data.device_format.userdata = &data;
 
-  if (SDL_OpenAudio (&data.fmt, NULL) < 0)
+  if (SDL_OpenAudio (&data.device_format, NULL) < 0)
   {
     Sound_FreeSample (data.sample);
     return;
   }
 
   SDL_PauseAudio (0);
-  beep_done = 0;
 
-  while (!beep_done)
+  sound_done = 0;
+  while (!sound_done)
     SDL_Delay (10);
 
   SDL_PauseAudio (1);
-  SDL_Delay (2 * 1000 * data.fmt.samples / data.fmt.freq);
-
+  SDL_Delay (2 * 1000 * data.device_format.samples / data.device_format.freq);
   Sound_FreeSample (data.sample);
   SDL_CloseAudio ();
 }
@@ -312,7 +331,7 @@ directory_content_size (const char *path, byte_t *size)
     n_child = n_path + n_name + 1;
     char child[n_child + 1];
     memcpy (child, path, n_path);
-    child[n_path] = DIR_SEPARATOR;
+    child[n_path] = DIR_SEPARATOR_C;
     memcpy (child + (n_path + 1), ep->d_name, n_name);
     child[n_child] = '\0';
     memset (&st, 0, sizeof (struct stat));
@@ -433,7 +452,7 @@ transfer_directory (const char *root_path)
     n_child_path = n_root_path + n_name + 1;
     char child_path[n_child_path + 1];
     memcpy (child_path, root_path, n_root_path);
-    child_path[n_root_path] = DIR_SEPARATOR;
+    child_path[n_root_path] = DIR_SEPARATOR_C;
     memcpy (child_path + (n_root_path + 1), ep->d_name, n_name);
     child_path[n_child_path] = '\0';
     char dst_path[PATH_BUFMAX];
@@ -507,7 +526,7 @@ get_real_destination_path (char *buffer,
   basename (src_base, src_path);
   n_src_base = strlen (src_base);
   memcpy (buffer, dst_path, n_dst_path);
-  buffer[n_dst_path] = DIR_SEPARATOR;
+  buffer[n_dst_path] = DIR_SEPARATOR_C;
   memcpy (buffer + (n_dst_path + 1), src_base, n_src_base);
   buffer[n_dst_path + n_src_base + 1] = '\0';
 }
@@ -599,6 +618,9 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
   struct stat src_st[n_src];
   byte_t src_size[n_src];
   int src_type[n_src];
+#ifdef ENABLE_SOUND
+  char *error_msg;
+#endif
 
   memset (&dst_st, 0, sizeof (struct stat));
   for (x = 0; (x < n_src); ++x)
@@ -694,11 +716,23 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
   if (showing_report)
     report_show ();
 
-#ifdef BEEP_SUPPORT
-  if (playing_beep && Sound_Init ())
+#ifdef ENABLE_SOUND
+  if (playing_sound)
   {
-    play_beep ();
-    Sound_Quit ();
+    if (!Sound_Init ())
+    {
+      error_msg = SDL_GetError ();
+      if (error_msg && *error_msg)
+        x_error (0, "error initializing SDL: %s", error_msg);
+      error_msg = (char *) Sound_GetError ();
+      if (error_msg && *error_msg)
+        x_error (0, "error initializing SDL_sound subsystem: %s", error_msg);
+    }
+    else
+    {
+      play_sound ();
+      Sound_Quit ();
+    }
     SDL_Quit ();
   }
 #endif
@@ -726,11 +760,16 @@ main (int argc, char **argv)
   set_program_name (argv[0]);
   for (;;)
   {
-    c = getopt_long (argc, argv, "opPtu:Vhv", options, NULL);
+    c = getopt_long (argc, argv, "nopPtu:Vhv", options, NULL);
     if (c == -1)
       break;
     switch (c)
     {
+#ifdef ENABLE_SOUND
+      case 'n':
+        playing_sound = false;
+        break;
+#endif
       case 'o':
         preserving_ownership = true;
         break;
@@ -755,11 +794,6 @@ main (int argc, char **argv)
       case 'V':
         verifying_checksums = true;
         break;
-#ifdef BEEP_SUPPORT
-      case NO_BEEP_OPTION:
-        playing_beep = false;
-        break;
-#endif
       case NO_PROGRESS_OPTION:
         showing_progress = false;
         break;
@@ -767,11 +801,11 @@ main (int argc, char **argv)
         showing_report = false;
         break;
       case 'h':
-        usage(false);
+        usage (false);
       case 'v':
-        version();
+        version ();
       default:
-        usage(true);
+        usage (true);
     }
   }
 

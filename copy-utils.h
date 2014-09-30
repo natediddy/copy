@@ -17,8 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __UTILS_H__
-#define __UTILS_H__
+#ifndef __COPY_UTILS_H__
+#define __COPY_UTILS_H__
 
 #include <dirent.h>
 #include <errno.h>
@@ -62,12 +62,14 @@
 #define SECONDS_PER_MINUTE        60
 
 #ifdef _WIN32
-# define DIR_SEPARATOR       '\\'
-# define is_dir_separator(c) (((c) == DIR_SEPARATOR) || ((c) == '/'))
+# define DIR_SEPARATOR_C     '\\'
+# define DIR_SEPARATOR_S     "\\"
+# define is_dir_separator(c) (((c) == DIR_SEPARATOR_C) || ((c) == '/'))
 # define make_dir(path)      (_mkdir (path) == 0)
 #else
-# define DIR_SEPARATOR        '/'
-# define is_dir_separator(c)  ((c) == DIR_SEPARATOR)
+# define DIR_SEPARATOR_C      '/'
+# define DIR_SEPARATOR_S      "/"
+# define is_dir_separator(c)  ((c) == DIR_SEPARATOR_C)
 # define make_dir(path)       (mkdir (path, S_IRWXU) == 0)
 #endif
 
@@ -106,5 +108,5 @@ void format_percent (char *buffer, byte_t so_far, byte_t total);
 int console_width (void);
 void preserve_timestamp (const char *path, time_t atime, time_t mtime);
 
-#endif /* __UTILS_H__ */
+#endif /* __COPY_UTILS_H__ */
 

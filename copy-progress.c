@@ -20,8 +20,8 @@
 #include <math.h>
 #include <string.h>
 
-#include "progress.h"
-#include "utils.h"
+#include "copy-progress.h"
+#include "copy-utils.h"
 
 #define PROGRESS_OUT_BUFMAX 1024
 
