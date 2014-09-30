@@ -70,4 +70,4 @@ following example), use the 'prefix' variable:
     sudo make prefix=/usr install
 
 If the '--enable-sound' option was used earlier when calling ./configure, the
-audio file 'complete.oga' will be installed at: <prefix>/share/copy/sounds/complete.oga.
+audio file 'complete.oga' will be installed at: ${prefix}/share/copy/sounds/complete.oga.
