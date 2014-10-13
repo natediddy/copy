@@ -35,11 +35,11 @@
 #include "copy-progress.h"
 #include "copy-utils.h"
 
+#define CHUNK_SIZE 4000
+
 #ifdef ENABLE_SOUND
 # define SOUND_PATH SOUNDSDIR DIR_SEPARATOR_S SOUNDFILE
 #endif
-
-#define CHUNK_SIZE 10000
 
 enum
 {
@@ -55,6 +55,9 @@ enum
 {
   NO_PROGRESS_OPTION = CHAR_MAX + 1,
   NO_REPORT_OPTION
+#ifdef ENABLE_SOUND
+  , NO_SOUND_OPTION
+#endif
 };
 
 #ifdef ENABLE_SOUND
@@ -85,15 +88,15 @@ static bool           preserving_ownership   =                    false;
 static bool           preserving_permissions =                    false;
 static bool           preserving_timestamp   =                    false;
 static bool           verifying_checksums    =                    false;
+static size_t         chunk_size             =               CHUNK_SIZE;
+static void *         chunk                  =                     NULL;
 static struct timeval start_time;
 static char           directory_transfer_source_root[PATH_BUFMAX];
 static char           directory_transfer_destination_root[PATH_BUFMAX];
 
 static struct option const options[] =
 {
-#ifdef ENABLE_SOUND
-  {"no-sound", no_argument, NULL, 'n'},
-#endif
+  {"chunk-size", required_argument, NULL, 'c'},
   {"preserve-ownership", no_argument, NULL, 'o'},
   {"preserve-permissions", no_argument, NULL, 'p'},
   {"preserve-all", no_argument, NULL, 'P'},
@@ -102,6 +105,9 @@ static struct option const options[] =
   {"verify", no_argument, NULL, 'V'},
   {"no-progress", no_argument, NULL, NO_PROGRESS_OPTION},
   {"no-report", no_argument, NULL, NO_REPORT_OPTION},
+#ifdef ENABLE_SOUND
+  {"no-sound", no_argument, NULL, NO_SOUND_OPTION},
+#endif
   {"help", no_argument, NULL, 'h'},
   {"version", no_argument, NULL, 'v'},
   {NULL, 0, NULL, 0}
@@ -138,10 +144,11 @@ usage (bool had_error)
   if (!had_error)
   {
     fputs ("Options:\n"
-#ifdef ENABLE_SOUND
-           "  -n, --no-sound      Do not play the notification sound when\n"
-           "                      copy operations are completed.\n"
-#endif
+           "  -c <SIZE>, --chunk-size=<SIZE>\n"
+           "                      Set the size of the individual chunks of\n"
+           "                      data that will be read and written during\n"
+           "                      copy operations to <SIZE> bytes. The\n"
+           "                      default for this value is 4000 bytes.\n"
            "  -o, --preserve-ownership\n"
            "                      Preserve ownership.\n"
            "  -p, --preserve-permissions\n"
@@ -150,9 +157,10 @@ usage (bool had_error)
            "                      permission data.\n"
            "  -t, --preserve-timestamp\n"
            "                      Preserve timestamps.\n"
-           "  -u <N>, --update-interval=<N>\n"
+           "  -u <INTERVAL>, --update-interval=<INTERVAL>\n"
            "                      Set the progress update interval to every\n"
-           "                      <N> seconds. The default is 0.5 seconds.\n"
+           "                      <INTERVAL> seconds. The default for this\n"
+           "                      value is 0.5 seconds.\n"
            "  -V, --verify        Perform a MD5 checksum verification on\n"
            "                      DESTINATION files to ensure they match up\n"
            "                      with their corresponding SOURCE file.\n"
@@ -162,6 +170,10 @@ usage (bool had_error)
            "                      operations.\n"
            "  --no-report         Do not show completion report after\n"
            "                      copy operations are finished.\n"
+#ifdef ENABLE_SOUND
+           "  --no-sound          Do not play notification sound when copy\n"
+           "                      operations are completed.\n"
+#endif
            "  -h, --help          Print this text and exit.\n"
            "  -v, --version       Print version information and exit.\n",
            stdout);
@@ -351,7 +363,6 @@ transfer_file (const char *src_path,
                const char *dst_path)
 {
   size_t bytes_read;
-  void *chunk;
   FILE *src_fp;
   FILE *dst_fp;
 
@@ -366,18 +377,10 @@ transfer_file (const char *src_path,
     exit (EXIT_FAILURE);
   }
 
-  chunk = malloc (CHUNK_SIZE);
-  if (!chunk)
-  {
-    x_error (errno, "malloc failed");
-    x_fclose (src_fp, src_path);
-    x_fclose (dst_fp, dst_path);
-    exit (EXIT_FAILURE);
-  }
-
+  memset (chunk, 0, sizeof (chunk));
   for (;;)
   {
-    bytes_read = fread (chunk, 1, CHUNK_SIZE, src_fp);
+    bytes_read = fread (chunk, 1, chunk_size, src_fp);
     fwrite (chunk, 1, bytes_read, dst_fp);
     if (showing_progress)
       progress_update (bytes_read);
@@ -385,7 +388,6 @@ transfer_file (const char *src_path,
       break;
   }
 
-  free (chunk);
   x_fclose (src_fp, src_path);
   x_fclose (dst_fp, dst_path);
 }
@@ -714,6 +716,10 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
   if (showing_report)
     report_init ();
 
+  chunk = malloc (chunk_size);
+  if (!chunk)
+    die (errno, "failed to initialize data chunk for transfers");
+
   for (x = 0; (x < total_sources); ++x)
   {
     char rpath[PATH_BUFMAX];
@@ -758,6 +764,13 @@ try_copy (const char **src_path, size_t n_src, const char *dst_path)
   }
 }
 
+static void
+exit_cleanup (void)
+{
+  if (chunk)
+    free (chunk);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -768,18 +781,23 @@ main (int argc, char **argv)
   const char **src_path;
 
   set_program_name (argv[0]);
+  atexit (exit_cleanup);
+
   for (;;)
   {
-    c = getopt_long (argc, argv, "nopPtu:Vhv", options, NULL);
+    c = getopt_long (argc, argv, "c:opPtu:Vhv", options, NULL);
     if (c == -1)
       break;
     switch (c)
     {
-#ifdef ENABLE_SOUND
-      case 'n':
-        playing_sound = false;
+      case 'c':
+        chunk_size = (size_t) strtoul (optarg, (char **) NULL, 10);
+        if (chunk_size == 0)
+        {
+          x_error (0, "chunk size cannot be zero -- reverting to default");
+          chunk_size = CHUNK_SIZE;
+        }
         break;
-#endif
       case 'o':
         preserving_ownership = true;
         break;
@@ -795,7 +813,7 @@ main (int argc, char **argv)
         preserving_timestamp = true;
         break;
       case 'u':
-        update_interval = strtod (optarg, (char **)NULL);
+        update_interval = strtod (optarg, (char **) NULL);
         if ((update_interval < 0.0) ||
             isnan (update_interval) ||
             isinf (update_interval))
@@ -810,6 +828,11 @@ main (int argc, char **argv)
       case NO_REPORT_OPTION:
         showing_report = false;
         break;
+#ifdef ENABLE_SOUND
+      case NO_SOUND_OPTION:
+        playing_sound = false;
+        break;
+#endif
       case 'h':
         usage (false);
       case 'v':

@@ -11,6 +11,7 @@ install-sh
 missing
 stamp-h1
 copy
+copy-config.h
 Makefile
 .deps
 .*.swp
