@@ -113,6 +113,73 @@ static struct option const options[] =
   {NULL, 0, NULL, 0}
 };
 
+static const struct
+{
+  char short_opt;
+  const char *long_opt;
+  const char *argument_name;
+  const char *description;
+}
+help_display_opts[] =
+{
+  {
+    'c', "chunk-size", "SIZE",
+    "Set the size of the individual chunks of data that will be read and "
+    "written during copy operations to SIZE bytes. The default for this "
+    "value is 4000 bytes (4kB)."
+  },
+  {
+    'o', "preserve-ownership", NULL, "Preserve ownership."
+  },
+  {
+    'p', "preserve-permissions", NULL, "Preserve permissions."
+  },
+  {
+    'P', "preserve-all", NULL,
+    "Preserve all timestamp, ownership, and permission data."
+  },
+  {
+    't', "preserve-timestamp", NULL, "Preserve timestamps."
+  },
+  {
+    'u', "update-interval", "INTERVAL",
+    "Set the progress update interval to every INTERVAL seconds. The "
+    "default for this value is 0.5 seconds."
+  },
+  {
+    'V', "verify", NULL,
+    "Perform an MD5 checksum verification after all copy operations are "
+    "finished to ensure integrity of the files. Note that using this option "
+    "may take considerably more time to complete."
+  },
+  {
+    0, "no-progress", NULL,
+    "Do not show any progress updates during copy operations."
+  },
+  {
+    0, "no-report", NULL,
+    "Do not show completion report after all copy operations are "
+    "finished."
+  },
+#ifdef ENABLE_SOUND
+  {
+    0, "no-sound", NULL,
+    "Do not play notification sound when all copy operations are "
+    "finished."
+  },
+#endif
+  {
+    'h', "help", NULL, "Print this message and exit."
+  },
+  {
+    'v', "version", NULL, "Print version information and exit."
+  },
+  {
+    0, NULL, NULL, NULL
+  }
+};
+
+
 static void
 set_program_name (const char *argv0)
 {
@@ -135,48 +202,112 @@ set_program_name (const char *argv0)
 }
 
 static void
+show_help_options (void)
+{
+  int i;
+  int n;
+  int s;
+  int width;
+  int indent_size;
+  int stop_point;
+  size_t pos;
+  char *w;
+  const char *p;
+
+  width = console_width ();
+  indent_size = width * 0.05;
+  stop_point = width - indent_size;
+
+#define __out_c(__c) \
+  do \
+  { \
+    fputc (__c, stdout); \
+    ++n; \
+  } while (0)
+
+#define __out_w(__w) \
+  do \
+  { \
+    for (w = ((char *) __w); *w; ++w) \
+      __out_c (*w); \
+  } while (0)
+
+#define __indent(__n) \
+  do \
+  { \
+    n = 0; \
+    s = indent_size * __n; \
+    for (i = 0; (i < s); ++i) \
+      __out_c (' '); \
+  } while (0)
+
+  fputs ("Options:\n", stdout);
+  for (pos = 0;; ++pos)
+  {
+    if (!help_display_opts[pos].short_opt &&
+        !help_display_opts[pos].long_opt &&
+        !help_display_opts[pos].argument_name &&
+        !help_display_opts[pos].description)
+      break;
+    __indent (1);
+    if (help_display_opts[pos].short_opt)
+    {
+      __out_c ('-');
+      __out_c (help_display_opts[pos].short_opt);
+      if (help_display_opts[pos].argument_name)
+      {
+        __out_c (' ');
+        __out_w (help_display_opts[pos].argument_name);
+      }
+      __out_w (", ");
+    }
+    if (help_display_opts[pos].long_opt)
+    {
+      __out_w ("--");
+      __out_w (help_display_opts[pos].long_opt);
+      if (help_display_opts[pos].argument_name)
+      {
+        __out_c ('=');
+        __out_w (help_display_opts[pos].argument_name);
+      }
+    }
+    fputc('\n', stdout);
+    if (help_display_opts[pos].description)
+    {
+      __indent (4);
+      for (p = help_display_opts[pos].description; *p;)
+      {
+        while (isspace (*p))
+          p++;
+        char word[256];
+        for (w = word; (*p && !isspace (*p)); ++p, ++w)
+          *w = *p;
+        *w = '\0';
+        if ((n + strlen (word)) >= stop_point)
+        {
+          fputc ('\n', stdout);
+          __indent (4);
+        }
+        __out_w (word);
+        __out_c (*p);
+      }
+      fputc ('\n', stdout);
+    }
+  }
+#undef __out_c
+#undef __out_w
+#undef __indent
+}
+
+static void
 usage (bool had_error)
 {
   fprintf ((!had_error) ? stdout : stderr,
            "Usage: %s [OPTION...] SOURCE... DESTINATION\n",
            program_name);
-
   if (!had_error)
   {
-    fputs ("Options:\n"
-           "  -c <SIZE>, --chunk-size=<SIZE>\n"
-           "                      Set the size of the individual chunks of\n"
-           "                      data that will be read and written during\n"
-           "                      copy operations to <SIZE> bytes. The\n"
-           "                      default for this value is 4000 bytes.\n"
-           "  -o, --preserve-ownership\n"
-           "                      Preserve ownership.\n"
-           "  -p, --preserve-permissions\n"
-           "                      Preserve permissions.\n"
-           "  -P, --preserve-all  Preserve all timestamp, ownership, and\n"
-           "                      permission data.\n"
-           "  -t, --preserve-timestamp\n"
-           "                      Preserve timestamps.\n"
-           "  -u <INTERVAL>, --update-interval=<INTERVAL>\n"
-           "                      Set the progress update interval to every\n"
-           "                      <INTERVAL> seconds. The default for this\n"
-           "                      value is 0.5 seconds.\n"
-           "  -V, --verify        Perform a MD5 checksum verification on\n"
-           "                      DESTINATION files to ensure they match up\n"
-           "                      with their corresponding SOURCE file.\n"
-           "                      Note that this will take quite a bit more\n"
-           "                      time to complete.\n"
-           "  --no-progress       Do not show any progress during copy\n"
-           "                      operations.\n"
-           "  --no-report         Do not show completion report after\n"
-           "                      copy operations are finished.\n"
-#ifdef ENABLE_SOUND
-           "  --no-sound          Do not play notification sound when copy\n"
-           "                      operations are completed.\n"
-#endif
-           "  -h, --help          Print this text and exit.\n"
-           "  -v, --version       Print version information and exit.\n",
-           stdout);
+    show_help_options ();
     exit (EXIT_SUCCESS);
   }
   exit (EXIT_FAILURE);
