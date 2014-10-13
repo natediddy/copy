@@ -1,6 +1,6 @@
 AC_INIT(
         [copy],
-        [1.1.5],
+        [1.1.6],
         [sforbes41@gmail.com],
         [copy],
         [https://github.com/natediddy/copy],

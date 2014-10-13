@@ -351,6 +351,7 @@ transfer_file (const char *src_path,
                const char *dst_path)
 {
   size_t bytes_read;
+  unsigned char *chunk;
   FILE *src_fp;
   FILE *dst_fp;
 
@@ -365,17 +366,27 @@ transfer_file (const char *src_path,
     exit (EXIT_FAILURE);
   }
 
+  chunk = (unsigned char *) malloc (CHUNK_SIZE);
+  if (!chunk)
+  {
+    x_error (errno, "malloc failed");
+    x_fclose (src_fp, src_path);
+    x_fclose (dst_fp, dst_path);
+    exit (EXIT_FAILURE);
+  }
+
   for (;;)
   {
-    unsigned char chunk[CHUNK_SIZE];
     bytes_read = fread (chunk, 1, CHUNK_SIZE, src_fp);
     fwrite (chunk, 1, bytes_read, dst_fp);
     if (showing_progress)
       progress_update (bytes_read);
     if (ferror (src_fp) || feof (src_fp))
       break;
+    /*memset (chunk, 0, sizeof (chunk));*/
   }
 
+  free (chunk);
   x_fclose (src_fp, src_path);
   x_fclose (dst_fp, dst_path);
 }
