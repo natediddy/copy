@@ -2,8 +2,8 @@ aclocal.m4
 autom4te.cache
 compile
 config.guess
-config.h
-config.h.in
+copy-config.h
+copy-config.h.in
 config.status
 config.sub
 config.log

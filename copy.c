@@ -351,7 +351,7 @@ transfer_file (const char *src_path,
                const char *dst_path)
 {
   size_t bytes_read;
-  unsigned char *chunk;
+  void *chunk;
   FILE *src_fp;
   FILE *dst_fp;
 
@@ -366,7 +366,7 @@ transfer_file (const char *src_path,
     exit (EXIT_FAILURE);
   }
 
-  chunk = (unsigned char *) malloc (CHUNK_SIZE);
+  chunk = malloc (CHUNK_SIZE);
   if (!chunk)
   {
     x_error (errno, "malloc failed");
@@ -383,7 +383,6 @@ transfer_file (const char *src_path,
       progress_update (bytes_read);
     if (ferror (src_fp) || feof (src_fp))
       break;
-    /*memset (chunk, 0, sizeof (chunk));*/
   }
 
   free (chunk);
